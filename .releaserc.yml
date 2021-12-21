@@ -1,0 +1,20 @@
+---
+repositoryUrl: 'git@github.com:bdellegrazie/vue-hello-world.git'
+plugins:
+  - "@semantic-release/commit-analyzer"
+  - "@semantic-release/release-notes-generator"
+  - - "@semantic-release/changelog"
+    - changelogTitle: "# Changelog\n\nAll notable changes to this project will be documented in this file.\nSee [Conventional Commits](https://conventionalcommits.org) for commit guidelines."
+  - - "@semantic-release/npm"
+    - npmPublish: false
+      tarballDir: "pack"
+  - - "semantic-release-ado"
+    - varName: "nextRelease"
+      setOnlyOnRelease: true
+  - - "@semantic-release/github"
+    - assets:
+        - name: "vue-hello-world-${nextRelease.gitTag}.tgz"
+          label: "Vue Hello World (${nextRelease.gitTag}) distribution"
+          path: "pack/*.tgz"
+  - "@semantic-release/git"
+preset: "conventionalcommits"

@@ -1,0 +1,201 @@
+# Node.js
+# Build a general Node.js project with npm.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
+
+trigger:
+- master
+
+pr: none
+
+name: $(TeamProject)_$(BuildDefinitionName)_$(SourceBranchName)_$(Date:yyyyMMdd)$(Rev:.r)
+
+variables:
+  - group: Github
+  - name: appName
+    value: 'vue-hello-world'
+  - name: vmImage
+    value: 'ubuntu-latest'
+
+stages:
+- stage: build
+  jobs:
+  - job: run_build
+    pool:
+      vmImage: '$(vmImage)'
+    steps:
+    - checkout: self
+      clean: 'outputs'
+      fetchDepth: 3
+    - task: NodeTool@0
+      displayName: 'Install NodeJS'
+      inputs:
+        versionSpec: '12.x'
+    - task: Npm@1
+      displayName: 'Install NodeJS Dependencies'
+      inputs:
+        command: custom
+        customCommand: ci
+
+    - task: Npm@1
+      displayName: 'Lint'
+      inputs:
+        command: custom
+        customCommand: 'run lint -- --format vso'
+
+    - script: npm audit --audit-level critical --registry=https://registry.npmjs.org/ --json > audit.json
+      displayName: 'Security Audit'
+      continueOnError: true
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact: audit_results'
+      condition: succeededOrFailed()
+      inputs:
+        PathtoPublish: 'audit.json'
+        ArtifactName: 'audit_results'
+
+    - task: Npm@1
+      displayName: 'Unit Tests'
+      inputs:
+        command: custom
+        customCommand: 'run test:unit -- --ci --coverage --reporters=jest-junit'
+      env:
+        JEST_JUNIT_OUTPUT_DIR: tests/unit/reports
+
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Unit Test Coverage'
+      condition: succeededOrFailed()
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: 'tests/unit/reports/*coverage.xml'
+    - task: PublishTestResults@2
+      displayName: 'Unit Test Results'
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'tests/unit/reports/junit.xml'
+        testRunTitle: 'Unit'
+
+    - task: Npm@1
+      displayName: 'E2E Tests'
+      inputs:
+        command: custom
+        customCommand: 'run test:e2e -- --env chrome-headless'
+    - task: PublishTestResults@2
+      displayName: 'E2E Test Results'
+      condition: succeededOrFailed()
+      inputs:
+        testRunner: JUnit
+        testResultsFiles: 'tests/e2e/reports/**.xml'
+        testRunTitle: 'E2E'
+
+    - task: InstallSSHKey@0
+      displayName: 'Install Key'
+      inputs:
+        knownHostsEntry: >
+          github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+        sshPublicKey: >
+          ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDoWD+BJPit/CBhYGn+CqC4RwdyFJqJqivgfkbLZtz2D84Y6lJfm9rEoGhJEb32/NELGTxhL0JmZj54jWUoVYfeJLpLTvIGJtFW4s3G6GSlc2g3HbaDe5wusnO1VdA/MEu/kkCu5yEFXHZN8waB85gaWznOlINJSo9UzzkKg4WfsFgCluAH4eM8Zr03e+Ti6YgzkA83beaFlBY5UQme7ReHKLKuuVcLLr5kKlHtv/fREPd2tp9V45OyMWN4hRpjw70CTEjIvh3lGg1Y7RLHrfY5RqGYnEtecqoGUCDwpL3TiQ/lUNzjC31WnrUo6HleKeV7n2LXMLsz6zRJLbod/B55S/KlUa8ElazZlYWvEdJIDmKG3D38F9Xlxm9MToQjo8GW8PzgRDQMETY6nYcjJRKbCFi3QeQ/JffCcTyZ8GDrpeeaO0ejP4U/oUItMzBc9tEsgD0vqUepM0EF4Ai5CssihThYA+gy+8wdIYzYujuKMZf4SGL0selhPoElGOfupj09PWxWTkuyzFyDEZ/IZ8tLH+/07UlLDk7iX8pDQuQ9muE+be4/qnYnbV0ab+pP8WAUZp2yOoTWQeMAi/0BS72bH73KMpMUo7pSNZuZjGLLhHHk0tx3mEipKd52u3aJagy4e5dfd7GIsDqq3qY5YLh2pzzzIcsB6F1Jd1CDMBG+nQ== brett.dellegrazie@gmail.com
+        sshKeySecureFile: 'vue-hello-world.key'
+
+    - task: Npm@1
+      displayName: 'Semantic Release'
+      inputs:
+        command: custom
+        customCommand: 'run semantic-release'
+      env:
+        GH_TOKEN: $(GH_TOKEN)
+
+    - task: PublishPipelineArtifact@1
+      condition: ne(variables['nextRelease'], '')
+      displayName: 'Publish Distribution'
+      inputs:
+        artifactName: 'distribution'
+        targetPath: '$(Build.SourcesDirectory)/pack/vue-hello-world-$(nextRelease).tgz'
+
+- stage: provision
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'), false)
+  variables:
+    azureSubscription: ${{format('arm-{0}',variables['appName'])}}
+    rgName: ${{format('rg-{0}',variables['appName'])}}
+    rgLocation: 'uksouth'
+  jobs:
+  - job: run_provision
+    pool:
+      vmImage: '$(vmImage)'
+    steps:
+    - checkout: self
+      clean: 'outputs'
+      fetchDepth: 3
+    #- task: AzureCLI@1
+    #  displayName: "ResourceGroup Exists?"
+    #  inputs:
+    #    azureSubscription: 'arm-vue-hello-world'
+    #    scriptLocation: 'inlineScript'
+    #    inlineScript: "echo ###vso[task.setvariable variable=rgExists;]$(az group exists --name '$(rgName)')"
+    #    failOnStandardError: true
+
+    #- task: AzureCLI@1
+    #  displayName: "Provision ResourceGroup"
+    #  condition: not(variables['rgExists'])
+    #  inputs:
+    #    azureSubscription: 'arm-vue-hello-world'
+    #    scriptLocation: 'inlineScript'
+    #    inlineScript: "az group create --location '$(rgLocation)' --name '$(rgName)'"
+
+    # We're relying upon the task behaviour of creating the resource group if it doesn't exist
+    - task: AzureResourceGroupDeployment@2
+      displayName: 'Provision Resources'
+      inputs:
+        azureSubscription: ${{variables['azureSubscription']}}
+        resourceGroupName: ${{variables['rgName']}}
+        action: "Create Or Update Resource Group"
+        location: ${{variables['rgLocation']}}
+        templateLocation: 'Linked artifact'
+        csmfile: '$(Build.SourcesDirectory)/azure/arm/azuredeploy.json'
+        deploymentOutputs: 'arm'
+    - task: 'ARM Outputs@5'
+      inputs:
+        ConnectedServiceNameSelector: 'ConnectedServiceNameARM'
+        ConnectedServiceNameARM: ${{variables['azureSubscription']}}
+        resourceGroupName: ${{variables['rgName']}}
+        prefix: 'arm_'
+        whenLastDeploymentIsFailed: 'fail'
+
+    - task: AzureCLI@1
+      displayName: "Enable Static Website host"
+      inputs:
+        azureSubscription: ${{variables['azureSubscription']}}
+        scriptLocation: 'inlineScript'
+        inlineScript: "az storage blob service-properties update --account-name '$(arm_storageAccountName)' --static-website --404-document index.html --index-document index.html "
+
+    - task: DownloadPipelineArtifact@1
+      displayName: "Download Distribution"
+      inputs:
+        artifactName: 'distribution'
+        targetPath: '$(System.ArtifactsDirectory)'
+    - task: ExtractFiles@1
+      displayName: "Extract Distribution"
+      inputs:
+        archiveFilePatterns: '$(System.ArtifactsDirectory)/*.tgz'
+        destinationFolder: '$(System.ArtifactsDirectory)/tmp'
+        cleanDestinationFolder: true
+
+    - task: AzureCLI@1
+      displayName: "Deploy App"
+      inputs:
+        azureSubscription: ${{variables['azureSubscription']}}
+        scriptLocation: 'inlineScript'
+        inlineScript: "az storage blob upload-batch -s '$(System.ArtifactsDirectory)/tmp/package/dist' -d \\$web --account-name '$(arm_storageAccountName)'"
+
+    - task: AzureCLI@1
+      displayName: "Retrieve Web URL"
+      inputs:
+        azureSubscription: ${{variables['azureSubscription']}}
+        scriptLocation: 'inlineScript'
+        inlineScript: echo "##vso[task.setvariable variable=webUrl;isOutput=true]$$(az storage account show --name '$(arm_storageAccountName)' --resource-group '$(rgName)' --query 'primaryEndpoints.web' --output tsv)"
+
+    - script: |
+        set +x
+        echo "[vue-hello-world]($variables['webUrl'])" > ${SYSTEM_ARTIFACTSDIRECTORY}/weburl.md
+        echo "##vso[task.uploadsummary]${SYSTEM_ARTIFACTSDIRECTORY}/weburl.md"
+      displayName: "WebURL Summary Doc"

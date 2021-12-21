@@ -1,0 +1,32 @@
+.DS_Store
+/coverage/
+/node_modules/
+/tests/unit/reports/
+/tests/e2e/reports/
+
+# local env files
+/.env.local
+/.env.*.local
+
+# Log files
+/*.log*
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+/azure/
+/pack/
+/public/
+/src/
+/tests/
+Jenkinsfile
+/*.yml
+/*.js
+/*.json
+/.*
